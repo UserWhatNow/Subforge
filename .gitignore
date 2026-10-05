@@ -1,0 +1,29 @@
+node_modules/
+dist/
+
+# files the test suites generate
+tests/*.png
+tests/*.pdf
+tests/_*.json
+tests/_*.js
+
+# datasheets and other third-party documents
+*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.claude/
+SESSION_NOTES.md
+
+# kept locally, not published (GitHub Pages serves the root as-is)
+wrangler.jsonc
+_headers
+favicon-32.png
+package.json
+package-lock.json
+tests/
+scripts/
+
+screenshots/

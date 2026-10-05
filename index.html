@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SubForge – Subwoofer Box Designer</title>
+<meta name="description" content="Design and simulate sealed, ported and bandpass subwoofer enclosures: live frequency response, cone excursion, port velocity, 3D model, cut list and sheet nesting.">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<script>try{var t=localStorage.getItem('sf_theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e1015">
+<meta property="og:title" content="SubForge - Subwoofer Box Designer">
+<meta property="og:description" content="Free subwoofer box designer: sealed, ported and bandpass simulation, 3D model, cut list and plans. Runs entirely in your browser.">
+<meta property="og:type" content="website">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#171b25"/><circle cx="32" cy="32" r="22" fill="none" stroke="#ffb000" stroke-width="5.5"/><circle cx="32" cy="32" r="15" fill="#2a2415" stroke="#ffb000" stroke-width="2.4"/><circle cx="32" cy="32" r="5.2" fill="#ffb000"/></svg><h1 class="logo">SubForge</h1><span>subwoofer box designer</span></div>
+  <nav>
+    <a href="#sec-sim">Simulation</a><a href="#sec-build">Build</a><a href="#sec-plan">Plans</a><a href="#sec-cut">Cut list</a><a href="#sec-tools">Tools</a>
+  </nav>
+  <div class="actions">
+    <button id="btn-theme" data-tip="Switch between automatic (follows your device), light and dark theme." class="btn sm" title="Colour theme">Auto</button>
+    <button id="btn-unit" data-tip="Switch the display unit between mm, cm and inches." class="btn sm" title="Display units">mm</button>
+    <button id="btn-pin" data-tip="Keep this design on every chart so you can compare it with changes." class="btn sm">+ Pin to compare</button>
+    <button id="btn-share" data-tip="Copy a link that opens this exact design." class="btn sm">Share link</button>
+    <button id="btn-json" data-tip="Download the design as a file." class="btn sm">Export</button>
+    <button id="btn-import" data-tip="Load a design file you exported earlier." class="btn sm">Import</button>
+    <button id="btn-print" data-tip="Print the design sheet, including all simulation graphs, or save it as a PDF." class="btn sm">Print</button>
+    <button id="btn-reset" data-tip="Go back to the default design." class="btn sm ghost">Reset</button>
+    <input type="file" id="file-import" accept=".json" hidden>
+  </div>
+</header>
+
+<div class="app">
+  <aside id="side" class="side" aria-label="Design inputs"></aside>
+
+  <main class="main">
+    <section id="cards" class="cards" aria-live="polite"></section>
+
+    <section id="sec-sim" class="panel">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="chart-tools" id="chart-tools"></div>
+      <div class="chart-wrap"><canvas id="chart" height="380" role="img" aria-label="Simulation graph"></canvas><div id="tip" class="tip" hidden></div></div>
+      <div id="legend" class="legend"></div>
+      <p id="chart-note" class="note"></p>
+    </section>
+
+    <section id="print-charts" class="panel print-only"></section>
+
+    <section id="checks" class="panel"></section>
+
+    <section id="sec-build" class="panel">
+      <div class="row-head"><h2>3D model &amp; baffle layout</h2>
+        <div class="seg" id="view-tools"></div></div>
+      <div class="build-grid">
+        <div class="v3"><canvas id="view3d" height="420" role="img" aria-label="3D model of the enclosure. Drag to rotate, scroll or pinch to zoom."></canvas><div class="hint">Drag to rotate · scroll to zoom</div></div>
+        <div id="baffle" class="baffle"></div>
+      </div>
+      <div id="port-info" class="kv"></div>
+    </section>
+
+    <section id="sec-plan" class="panel">
+      <h2>2D panel plans</h2>
+      <p class="note" style="margin-top:0">Every panel drawn to scale with its cut-outs. Dimensions are in the display unit.</p>
+      <div id="plan" class="plan"></div>
+    </section>
+
+    <section id="sec-cut" class="panel">
+      <div class="row-head"><h2>Cut list &amp; sheet nesting</h2><div><button id="btn-csv" data-tip="Download the cut list as a spreadsheet file." class="btn sm">Download CSV</button></div></div>
+      <div id="cutlist"></div>
+      <div id="sheets"></div>
+    </section>
+
+    <section id="sec-tools" class="panel">
+      <h2>Tools</h2>
+      <div class="tools">
+        <div class="tool">
+          <h3>Tone generator</h3>
+          <p class="note">Test the finished box for rattles and port noise. Start with the volume low – bass tones are far louder than they sound.</p>
+          <label class="fld"><span>Frequency</span><div class="inp"><input id="tone-f" type="number" value="40" min="10" max="200" step="1"><em>Hz</em></div></label>
+          <input id="tone-slider" aria-label="Tone frequency" type="range" min="10" max="200" value="40">
+          <label class="fld"><span>Volume</span><input id="tone-v" type="range" min="0" max="100" value="15"></label>
+          <div class="btnrow"><button id="tone-play" class="btn">▶ Play</button><button id="tone-sweep" class="btn">↗ Sweep 15–120 Hz</button></div>
+        </div>
+        <div class="tool">
+          <h3>Enclosure volume calculator</h3>
+          <p class="note">Quick check of any rectangular box, in the current display unit.</p>
+          <div id="volcalc"></div>
+        </div>
+        <div class="tool">
+          <h3>About the model</h3>
+          <p class="note">A lumped-element electro-mechano-acoustic circuit (driver, Le, box compliance, leakage loss, port mass) is solved at every frequency. Excursion, port velocity and impedance come from the same solution as the SPL curve, so they always agree. Results are linear small-signal estimates: real drivers lose output from Bl(x) non-linearity, thermal compression and room effects. Use it to compare designs and as a starting point, then verify with measurements.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+  <footer class="site-foot">
+    <span><b>SubForge</b> <span id="ver">v0.9 beta</span></span>
+    <span>Results are simulation estimates &ndash; verify with measurements before cutting wood.</span>
+    <span>Everything stays in your browser; nothing is uploaded.</span>
+    <a href="legal.html">Licence &amp; disclaimer</a>
+    <button id="btn-bug" class="btn" type="button">Copy bug report</button>
+  </footer>
+<button id="btn-design" class="fab" type="button" aria-controls="side" aria-expanded="false">&#9881; Design</button>
+<div id="scrim" class="scrim"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="engine.js"></script>
+<script src="view.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
+

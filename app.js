@@ -23,24 +23,26 @@
     return {
       v: 1, unit: 'mm', type: 'ported', n: 1, driver: Object.assign({ vc: 'single', wire: 'series' }, clone(PRESETS[3])),
       dims: { w: 460, h: 356, d: 534 }, t: 19, dbl: false, braces: null, brace: { mode: 'auto', shape: 'round', size: 25, items: [] }, ql: 7,
-      fb: 29, port: { kind: 'pipe', n: 2, dia: 70, slotH: 60, slotW: 0, flare: false, pos: 'front', place: 'auto', slotDir: 'auto', lenMode: 'auto', len: 300, fold: true },
-      fb2: 36, port2: { kind: 'pipe', n: 1, dia: 75, slotH: 50, slotW: 0, flare: false, lenMode: 'auto', len: 200, fold: true }, bp: { rear: 0.45 }, damp: { fill: 0 }, amp: { minOhm: 1 }, wiring: 'parallel',
-      layout: { gap: 20, align: 50, dir: 'auto', px: null, py: null },
+      fb: 29, port: { kind: 'pipe', n: 2, dia: 70, slotH: 60, slotW: 0, flare: false, pos: 'front', place: 'auto', slotDir: 'auto', lenMode: 'auto', len: 300, fold: true, walls: [{ along: 'bottom', gap: 60, span: 0, pos: null }] },
+      fb2: 36, port2: { kind: 'pipe', n: 1, dia: 75, slotH: 50, slotW: 0, flare: false, lenMode: 'auto', len: 200, fold: true, walls: [{ along: 'bottom', gap: 50, span: 0, pos: null }] }, bp: { rear: 0.45 }, damp: { fill: 0 }, amp: { minOhm: 1 }, wiring: 'parallel',
+      layout: { gap: 20, align: 50, dir: 'auto', px: null, py: null, panel: 'front', cols: 2, dx: null, dy: null },
       env: { type: 'free', fc: 50, cap: 12 }, power: 300, hp: { f: 20, order: 4 },
-      fit: { vol: 60, ratio: 'deep' }, sheet: { w: 2440, h: 1220, kerf: 3 }, pins: [],
+      fit: { vol: 60, ratio: 'deep' }, sheet: { w: 2440, h: 1220, kerf: 3 }, pins: [], xwalls: [],
+      layers: { front: 0, rear: 0, left: 0, right: 0, top: 0, bottom: 0 }, // extra layers glued onto each panel
     };
   }
   function merge(dst, src) { for (const k in src) { if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k]) && dst[k] && typeof dst[k] === 'object') merge(dst[k], src[k]); else dst[k] = src[k]; } return dst; }
 
+  const MAX_WALLS = 1, MAX_XWALLS = 8; // one slot wall per port; extra walls are separate panels
   let S = defaultState();
   /* Anything that comes from outside (share link, saved design, imported file) is rebuilt from the known fields only:
      numbers must be numbers, flags booleans, choices one of the allowed values. Nothing else is ever kept or shown as HTML. */
   const ENUMS = {
     type: ['sealed', 'ported', 'bandpass', 'bandpass6'], unit: ['mm', 'cm', 'in'], wiring: ['parallel', 'series'],
     'driver.vc': ['single', 'dual'], 'driver.wire': ['series', 'parallel'],
-    'port.kind': ['pipe', 'slot'], 'port.pos': ['front', 'rear', 'left', 'right'], 'port.place': ['auto', 'right', 'left', 'below', 'above', 'custom'], 'port.slotDir': ['auto', 'horizontal', 'vertical'], 'port.lenMode': ['auto', 'custom'],
+    'port.kind': ['pipe', 'slot'], 'port.pos': ['front', 'rear', 'left', 'right', 'top', 'bottom'], 'layout.panel': ['front', 'rear', 'left', 'right', 'top', 'bottom'], 'port.place': ['auto', 'right', 'left', 'below', 'above', 'custom'], 'port.slotDir': ['auto', 'horizontal', 'vertical'], 'port.lenMode': ['auto', 'custom'],
     'port2.kind': ['pipe', 'slot'], 'port2.lenMode': ['auto', 'custom'],
-    'env.type': ['free', 'room', 'car'], 'layout.dir': ['auto', 'row', 'col'], 'brace.mode': ['auto', 'custom'], 'brace.shape': ['round', 'square'], 'fit.ratio': ['current', 'deep', 'golden', 'cube', 'wide', 'tall'],
+    'env.type': ['free', 'room', 'car'], 'layout.dir': ['auto', 'row', 'col', 'grid'], 'brace.mode': ['auto', 'custom'], 'brace.shape': ['round', 'square'], 'fit.ratio': ['current', 'deep', 'golden', 'cube', 'wide', 'tall'],
   };
   const isNum = (v) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) && isFinite(Number(v));
   function normalize(src, def, prefix) {
@@ -50,6 +52,9 @@
       const d = def[k], v = src[k], p = (prefix || '') + k;
       if (k === 'pins') out[k] = [];
       else if (k === 'items') out[k] = (Array.isArray(v) ? v : []).slice(0, 12).map((it) => ({ axis: it && ['vertical', 'side', 'depth'].includes(it.axis) ? it.axis : 'vertical', a: it && isNum(it.a) ? Number(it.a) : 0, b: it && isNum(it.b) ? Number(it.b) : 0 }));
+      // slot port walls; a design saved before walls existed has none and gets them from its old slot size in sanitize()
+      else if (k === 'xwalls') out[k] = (Array.isArray(v) ? v : []).filter((w) => w && typeof w === 'object').slice(0, MAX_XWALLS).map((w) => ({ dir: ['across', 'side', 'flat'].includes(w.dir) ? w.dir : 'across', pos: isNum(w.pos) ? Number(w.pos) : 0, s1: isNum(w.s1) ? Number(w.s1) : 0, s2: isNum(w.s2) ? Number(w.s2) : 0, o1: isNum(w.o1) ? Number(w.o1) : null, o2: isNum(w.o2) ? Number(w.o2) : null }));
+      else if (k === 'walls') out[k] = Array.isArray(v) ? v.slice(0, MAX_WALLS).map((w) => ({ along: w && E.PANELS.includes(w.along) ? w.along : 'bottom', gap: w && isNum(w.gap) ? Number(w.gap) : 60, span: w && isNum(w.span) ? Number(w.span) : 0, pos: w && isNum(w.pos) ? Number(w.pos) : null })) : null;
       else if (d === null) out[k] = isNum(v) ? Number(v) : null;
       else if (typeof d === 'number') out[k] = isNum(v) ? Number(v) : d;
       else if (typeof d === 'boolean') out[k] = typeof v === 'boolean' ? v : d;
@@ -72,7 +77,8 @@
   const LIM = {
     'driver.fs': [5, 300], 'driver.qes': [0.05, 5], 'driver.qts': [0.05, 5], 'driver.vas': [0.5, 5000], 'driver.sd': [10, 6000],
     'driver.xmax': [0.5, 100], 'driver.re': [0.5, 64], 'driver.le': [0, 30], 'driver.pe': [1, 20000], 'driver.disp': [0, 60], 'driver.rg': [0, 3], 'driver.qms': [0.3, 200], 'driver.zn': [0.25, 32], 'damp.fill': [0, 100], 'amp.minOhm': [0.25, 16], 'driver.depth': [0, 400], 'driver.mms': [0.1, 5000], 'driver.cms': [0.001, 5], 'driver.cut': [50, 650],
-    n: [1, 8, 1], 'dims.w': [60, 3000], 'dims.h': [60, 3000], 'dims.d': [60, 3000], t: [6, 60], braces: [0, 12, 1], 'brace.size': [5, 100], 'port.len': [10, 3000], 'port2.len': [10, 3000], ql: [1, 100],
+    'layers.front': [0, 4, 1], 'layers.rear': [0, 4, 1], 'layers.left': [0, 4, 1], 'layers.right': [0, 4, 1], 'layers.top': [0, 4, 1], 'layers.bottom': [0, 4, 1],
+    n: [1, 12, 1], 'layout.cols': [1, 12, 1], 'layout.dx': [0, 3000], 'layout.dy': [0, 3000], 'dims.w': [60, 3000], 'dims.h': [60, 3000], 'dims.d': [60, 3000], t: [6, 60], braces: [0, 12, 1], 'brace.size': [5, 100], 'port.len': [10, 3000], 'port2.len': [10, 3000], ql: [1, 100],
     'bp.rear': [0.1, 0.9], 'fit.vol': [1, 3000], fb: [8, 250], fb2: [8, 250],
     'port.dia': [10, 400], 'port.n': [1, 8, 1], 'port.slotH': [0, 3000], 'port.slotW': [0, 3000],
     'port2.dia': [10, 400], 'port2.n': [1, 8, 1], 'port2.slotH': [0, 3000], 'port2.slotW': [0, 3000],
@@ -80,6 +86,11 @@
     'sheet.w': [200, 6000], 'sheet.h': [200, 6000], 'sheet.kerf': [0, 10],
     'layout.gap': [10, 400], 'layout.align': [0, 100], 'layout.px': [0, 3000], 'layout.py': [0, 3000],
   };
+  const lim = (v, a, b) => Math.min(b, Math.max(a, v));
+  function fixWall(w, pid) {
+    const nb = E.NEIGH[pid] || E.NEIGH.front, ok = Object.values(nb);
+    return { along: ok.includes(w.along) ? w.along : nb.bottom, gap: lim(+w.gap || 5, 5, 1000), span: lim(+w.span || 0, 0, 3000), pos: w.pos == null || !isFinite(+w.pos) ? null : lim(+w.pos, 0, 3000) };
+  }
   function sanitize(s) {
     if (s.port.slotDir === 'vertical') { const w = s.port.slotH; s.port.slotH = s.port.slotW; s.port.slotW = w; } s.port.slotDir = 'auto';
     for (const k in LIM) {
@@ -89,6 +100,18 @@
       set(s, k, v);
     }
     s.layout.gap = Math.max(10, s.layout.gap);
+    // the old "double front baffle" was a second layer inside the box: it becomes one outside layer on a box one board shallower,
+    // so the outside size, the inside and the cut pieces stay exactly as they were
+    if (s.dbl) { s.layers.front = Math.min(4, s.layers.front + 1); s.dims.d = Math.max(60, s.dims.d - s.t); s.dbl = false; }
+    // slot walls: older designs get one wall from their slot size; every wall must run along a box wall next to the port's panel
+    [['port', E.isBP(s.type) ? 'front' : s.port.pos], ['port2', 'rear']].forEach(([pk, pid]) => {
+      const P = s[pk];
+      if (!Array.isArray(P.walls)) P.walls = E.legacyWalls(P, pid, pk === 'port' ? P.place : 'auto');
+      if (!P.walls.length && P.kind === 'slot') P.walls = E.legacyWalls({}, pid);
+      P.walls = P.walls.slice(0, MAX_WALLS).map((w) => fixWall(w, pid));
+    });
+    if (!Array.isArray(s.xwalls)) s.xwalls = [];
+    s.xwalls = s.xwalls.slice(0, MAX_XWALLS).map((w) => ({ dir: ['across', 'side', 'flat'].includes(w.dir) ? w.dir : 'across', pos: lim(+w.pos || 0, 0, 3000), s1: lim(+w.s1 || 0, 0, 3000), s2: lim(+w.s2 || 0, 0, 3000), o1: w.o1 == null || !isFinite(+w.o1) ? null : lim(+w.o1, 0, 3000), o2: w.o2 == null || !isFinite(+w.o2) ? null : lim(+w.o2, 0, 3000) }));
     if (!Array.isArray(s.brace.items)) s.brace.items = [];
     s.brace.items = s.brace.items.slice(0, 12).map((it) => ({ axis: ['vertical', 'side', 'depth'].includes(it.axis) ? it.axis : 'vertical', a: Math.max(0, +it.a || 0), b: Math.max(0, +it.b || 0) }));
   }
@@ -122,9 +145,17 @@
     'driver.rg': 'Series resistance of the speaker cable and amplifier output. It raises the effective Qes and Qts. 0.1–0.3 Ω is realistic in a car.',
     'driver.mms': 'Moving mass from the datasheet. With Fs it gives Cms, which together with Vas gives the cone area Sd.',
     'driver.cms': 'Suspension compliance from the datasheet. With Vas it gives the cone area Sd.',
-    dbl: 'Two layers of board glued together for the front baffle. Stiffer, but it takes 1 extra panel thickness of depth.',
+    'layers.front': 'Extra boards glued onto the outside of the front (1 = double baffle). Stiffer; the inside stays the same and the box gets deeper. A port through it gets longer by the layers.',
+    'layers.rear': 'Extra boards glued onto the back panel.', 'layers.left': 'Extra boards glued onto the left side.', 'layers.right': 'Extra boards glued onto the right side.',
+    'layers.top': 'Extra boards glued onto the top.', 'layers.bottom': 'Extra boards glued onto the bottom.',
     'port.pos:front': 'Port opens through the front baffle.', 'port.pos:rear': 'Port opens through the back panel.',
     'port.pos:left': 'Port opens through the left side panel.', 'port.pos:right': 'Port opens through the right side panel.',
+    'port.pos:top': 'Port opens through the top panel.', 'port.pos:bottom': 'Port opens through the bottom panel (stand the box on feet so it can breathe).',
+    'layout.panel': 'Which panel the drivers are mounted on. The box dimension behind that panel must be larger than the mounting depth.',
+    'layout.panel:bottom': 'Drivers fire downwards: keep a gap of at least a quarter of the cut-out under the box.',
+    'layout.cols': 'How many drivers sit side by side in each row. 4 drivers with 2 per row = 2 on 2; 6 with 3 per row = 3 on 3.',
+    'layout.dx': 'Centre of the driver group, measured from the left edge of the panel as seen from outside. Empty = automatic.',
+    'layout.dy': 'Centre of the driver group, measured from the bottom edge of the panel as seen from outside. Empty = automatic.',
     'port.fold': 'If the port is longer than the box is deep, build it as a serpentine of straight segments joined by U-turns. Each turn adds a little path length.',
     'port2.fold': 'Fold the rear-chamber port into a serpentine when it is longer than the chamber is deep.',
     'damp.fill': 'How full the box is with polyester wool or similar. It makes the box act larger (most in sealed chambers) and tames internal reflections. The effect shown is an estimate.',
@@ -135,6 +166,7 @@
     'driver.zn': 'Nominal impedance from the datasheet (per voice coil for dual-coil drivers). Leave empty to estimate it from Re.',
     'act:tunebp-wide': 'Search the chamber split and tunings for the widest flat passband (no more than 2 dB dip).',
     'act:tunebp-spl': 'Search for the highest output with a passband at least half an octave wide.',
+    'act:addxwall': 'Add a panel anywhere inside the box. It takes up volume, so the net volume and the tuning follow.',
     'act:derivesd': 'Work out the cone area Sd from Vas and Mms (or Cms).', 'act:addbrace': 'Add another brace bar.',
     n: 'Number of identical drivers sharing the box. Volume and ports are shared equally between them.',
     type: 'Box alignment. Sealed: tight and compact. Ported: louder and deeper for the size. Band-pass: narrow, very efficient output through ports only.',
@@ -142,7 +174,7 @@
     'type:ported': 'Ported: a tuned port adds output near the tuning frequency and extends the bass lower.',
     'type:bandpass': '4th-order band-pass: sealed rear chamber, ported front chamber. Narrow passband, high efficiency.',
     'type:bandpass6': '6th-order band-pass: both chambers vented, each with its own port and tuning. Wider, more complex.',
-    'dims.w': 'External width of the box.', 'dims.h': 'External height of the box.', 'dims.d': 'External depth of the box (front to back).',
+    'dims.w': 'Outside width of the box, without extra outside layers.', 'dims.h': 'Outside height of the box, without extra outside layers.', 'dims.d': 'Outside depth of the box (front to back), without extra outside layers.',
     t: 'Panel thickness. Internal volume is calculated with this wall thickness on all sides.',
     braces: 'Number of round or square brace bars in automatic mode. Empty = automatic suggestion.',
     'brace.mode': 'Automatic spreads the bars evenly along the depth. Custom lets you choose the direction and position of every bar.',
@@ -161,13 +193,13 @@
     'port.dia': 'Inner diameter of each round port.', 'port.n': 'Number of identical round ports. More ports add area, which makes each one longer.',
     'port.slotW': 'Width of the slot opening as seen from the front. 0 = the full inside width.',
     'port.slotH': 'Height of the slot opening as seen from the front. 0 = the full inside height.',
-    'port.pos': 'Which panel the port opens through.', 'port.flare': 'Flared ends reduce air noise and let the port be slightly shorter.',
+    'port.pos': 'Which panel the port opens through. It can be a different panel from the drivers.', 'port.flare': 'Flared ends reduce air noise and let the port be slightly shorter.',
     'port.place': 'Which side of the drivers the port sits on, or place it yourself.',
     'layout.px': 'Horizontal position of the port centre, measured from the left edge of the panel.',
     'layout.py': 'Vertical position of the port centre, measured from the bottom edge of the panel.',
     'layout.gap': 'Edge-to-edge distance between driver cut-outs. Minimum 10 mm to keep the baffle strong.',
     'layout.align': 'Moves the driver group inside the free space: left, centre or right.',
-    'layout.dir': 'Side by side or stacked, for more than one driver.',
+    'layout.dir': 'Side by side, stacked, or in rows (2 on 2, 3 on 3 ...), for more than one driver.',
     power: 'Amplifier RMS power sent to all drivers together.',
     'env.type': 'Free field has no room gain. Rooms and cars boost the lowest bass.',
     'env.fc': 'Below this frequency the room or cabin gain rises at about 12 dB per octave.', 'env.cap': 'Maximum gain the room or cabin can add.',
@@ -205,7 +237,7 @@
   function num(k, label, unit, o) {
     o = o || {};
     let v = get(S, k);
-    if (o.len) v = S.unit === 'in' ? Math.round(v / 25.4 * 1000) / 1000 : S.unit === 'cm' ? Math.round(v) / 10 : Math.round(v * 10) / 10;
+    if (o.len && v != null) v = S.unit === 'in' ? Math.round(v / 25.4 * 1000) / 1000 : S.unit === 'cm' ? Math.round(v) / 10 : Math.round(v * 10) / 10;
     if (v == null) v = '';
     const u = o.len ? S.unit : unit || '';
     const lim = LIM[k], cv = (x) => (o.len ? (S.unit === 'in' ? x / 25.4 : S.unit === 'cm' ? x / 10 : x) : x);
@@ -228,9 +260,53 @@
     const lenUi = seg(pk + '.lenMode', [['auto', 'Length: auto'], ['custom', 'Length: custom']]) + (P.lenMode === 'custom' ? num(pk + '.len', P.kind === 'slot' ? 'Port / slot-wall length' : 'Port length', 'mm', { step: 1 }) + '<p class="note" style="margin:2px 0 6px">Tuning follows from this length.</p>' : (pc ? '<p class="note" style="margin:2px 0 6px">Calculated length: ' + Math.round(pc.L) + ' mm</p>' : ''));
     return seg(pk + '.kind', [['pipe', 'Round pipe'], ['slot', 'Slot']]) + (P.kind === 'pipe'
       ? num(pk + '.dia', 'Port diameter', 'mm', { step: 1 }) + num(pk + '.n', 'Number of ports', '×', { step: 1 })
-      : num(pk + '.slotW', 'Slot width (0 = full)', 'mm', { step: 1 }) + num(pk + '.slotH', 'Slot height (0 = full)', 'mm', { step: 1 }) + '<p class="note" style="margin:2px 0 6px">As seen from the front. Wide and short = horizontal slot; tall and narrow = vertical slot. 0 fills the inside of the box in that direction.</p>') + lenUi + chk(pk + '.fold', 'Fold the port to fit (serpentine)');
+      : wallFields(pk)) + lenUi + chk(pk + '.fold', 'Fold the port to fit (serpentine)');
   }
+  const portPanelOf = (pk) => (pk === 'port2' ? 'rear' : E.portPanel(S));
+  // the slot wall: which box wall it runs along, how far from it (= slot width), how wide, and where along that wall
+  function wallFields(pk) {
+    const P = S[pk], pid = portPanelOf(pk), nb = E.NEIGH[pid], pc = last && last.geo && (pk === 'port' ? last.geo.port : last.geo.port2);
+    const opts = ['bottom', 'top', 'left', 'right'].map((sd) => [nb[sd], 'Along the ' + V.PNAME[nb[sd]] + ' panel']);
+    const w = P.walls[0], k = pk + '.walls.0', side = E.sideOf(pid, w.along), vert = side === 'left' || side === 'right', sl = pc && pc.slots && pc.slots[0];
+    return `<div class="sub"><h3>Slot wall</h3><p class="note" style="margin:0 0 6px">The slot opens through the ${V.PNAME[pid]} panel, between this wall and the box wall it runs along. Extra walls elsewhere in the box are under Enclosure.</p>`
+      + `<div class="bar">${sel(k + '.along', 'Runs along', opts, true)}`
+      + `<div class="bar-row">${num(k + '.gap', 'Distance from the box wall (slot width)', '', { len: 1, min: 5 })}${nudgeW(k, 'gap', 5, ['narrower', 'wider'])}</div>`
+      + num(k + '.span', 'Wall width across (0 = full)', '', { len: 1, min: 0 })
+      + (w.span > 0 ? `<div class="bar-row">${num(k + '.pos', 'Slot centre from the ' + (vert ? 'bottom' : 'left') + ' edge', '', { len: 1, ph: 'centre' })}${nudgeW(k, 'pos', 10, vert ? ['↓', '↑'] : ['←', '→'])}</div>` : '')
+      + (sl ? `<p class="note" style="margin:2px 0 0">Slot ${fmtLen(sl.w)} × ${fmtLen(sl.h)} · ${f1(sl.area * 1e4)} cm²${sl.nSeg > 1 ? ' · folded ×' + sl.nSeg : ''}</p>` : '') + '</div>'
+      + '<p class="note" style="margin:4px 0 0">Sizes are seen from outside the panel.</p></div>';
+  }
+  // extra walls: free panels anywhere inside the box (labels per direction: [position, size 1, size 2, start 1, start 2])
+  const XW_DIRS = [['across', 'Standing, parallel to the front'], ['side', 'Standing, parallel to the sides'], ['flat', 'Lying flat, parallel to the top']];
+  const XW_LAB = {
+    across: ['Distance behind the baffle', 'Width (0 = wall to wall)', 'Height (0 = full)', 'Left edge from the left side', 'Bottom edge from the bottom'],
+    side: ['Distance from the left side', 'Depth (0 = front to back)', 'Height (0 = full)', 'Front edge behind the baffle', 'Bottom edge from the bottom'],
+    flat: ['Height above the bottom', 'Width (0 = wall to wall)', 'Depth (0 = front to back)', 'Left edge from the left side', 'Front edge behind the baffle'],
+  };
+  const XW_NUDGE = { across: ['front', 'back'], side: ['←', '→'], flat: ['↓', '↑'] };
+  // extra layers per panel (0 = single board); each adds one board on the outside of that face
+  function layerFields() {
+    const sum = E.PANELS.reduce((a, id) => a + S.layers[id], 0);
+    return `<div class="sub"><h3>Extra outside layers</h3><div class="layers">${PANEL_OPTS.map(([id, txt]) => num('layers.' + id, txt, '', { step: 1 })).join('')}</div>`
+      + `<p class="note" style="margin:4px 0 0">${sum ? `${sum} extra board${sum > 1 ? 's' : ''} in total. ` : ''}Each layer is a board glued onto the outside of that face and covers all of it. The inside and the volume stay the same; the box grows ${fmtLen(S.t)} per layer on that side. Cut-outs go through every layer, and a port through them gets longer (the tuning includes it).</p></div>`;
+  }
+  function xwallFields() {
+    let h = '<div class="sub"><h3>Extra walls</h3>';
+    S.xwalls.forEach((w, i) => {
+      const k = 'xwalls.' + i, L = XW_LAB[w.dir];
+      h += `<div class="bar"><div class="bar-h"><b>Wall ${i + 1}</b>${sel(k + '.dir', '', XW_DIRS, true, 'Extra wall ' + (i + 1) + ' direction')}<button class="btn sm ghost" data-act="delxwall:${i}" title="Remove this wall">✕</button></div>`
+        + `<div class="bar-row">${num(k + '.pos', L[0], '', { len: 1, min: 0 })}${nudgeW(k, 'pos', 10, XW_NUDGE[w.dir])}</div>`
+        + num(k + '.s1', L[1], '', { len: 1, min: 0 }) + num(k + '.s2', L[2], '', { len: 1, min: 0 })
+        + num(k + '.o1', L[3], '', { len: 1, ph: 'centred' }) + num(k + '.o2', L[4], '', { len: 1, ph: 'centred' }) + '</div>';
+    });
+    if (S.xwalls.length < MAX_XWALLS) h += `<div class="mini">${act('addxwall', '+ Add wall')}</div>`;
+    return h + '<p class="note" style="margin:4px 0 0">Panels you place anywhere inside the box, at the material thickness. They take up volume, so the net volume and the port tuning follow; they do not change the port opening. Positions are measured from the inside faces.</p></div>';
+  }
+  const nudgeW = (k, f, step, pair) => `<span class="nudge"><button data-wnudge="${k}.${f},${-step}" title="${pair[0]} ${step} mm">${pair[0]}</button><button data-wnudge="${k}.${f},${step}" title="${pair[1]} ${step} mm">${pair[1]}</button></span>`;
 
+  const PANEL_OPTS = [['front', 'Front'], ['rear', 'Back'], ['left', 'Left'], ['right', 'Right'], ['top', 'Top'], ['bottom', 'Bottom']];
+  // "3 on 3", "3 on 2" ... read from the top row down
+  const gridText = (n, cols) => { const c = Math.max(1, Math.min(n, Math.round(cols) || 1)), rows = []; for (let left = n; left > 0; left -= c) rows.push(Math.min(c, left)); return rows.length === 1 ? 'one row of ' + n : rows.length + ' rows, ' + rows.join(' on '); };
   const AXES = [['vertical', 'Top ↕ bottom'], ['side', 'Left ↔ right'], ['depth', 'Front ↔ back']];
   const AX_LABELS = { vertical: ['From left', 'From front'], side: ['From bottom', 'From front'], depth: ['From left', 'From bottom'] };
   // [minus, plus] nudge labels for the two position fields of each axis
@@ -251,6 +327,7 @@
     return h + '</div>';
   }
   function renderSide() {
+    sanitize(S); // e.g. a slot wall that no longer fits the new port panel is moved before the fields are drawn
     const all = PRESETS.concat(userDrivers());
     const cur = all.findIndex((p) => p.name === S.driver.name);
     let h = '<div class="drawer-head"><b>Design inputs</b><button class="btn sm" type="button" data-act="closedrawer">Done ✕</button></div>';
@@ -270,9 +347,10 @@
       ${seg('type', [['sealed', 'Sealed'], ['ported', 'Ported'], ['bandpass', '4th BP'], ['bandpass6', '6th BP']])}
       ${num('dims.w', 'Width', '', { len: 1 })}${num('dims.h', 'Height', '', { len: 1 })}${num('dims.d', 'Depth', '', { len: 1 })}
       ${num('t', 'Material thickness', '', { len: 1 })}
-      ${chk('dbl', 'Double front baffle (2 layers)')}
+      ${layerFields()}
       ${S.brace.mode === 'custom' ? '' : num('braces', 'Braces', '×', { step: 1, ph: 'auto' })}
       ${bracingFields()}
+      ${xwallFields()}
       ${num('ql', 'Leakage Q (QL)', '', { step: 0.5 })}
       ${num('damp.fill', 'Damping material fill', '%', { step: 5 })}
       ${E.isBP(S.type) ? num('bp.rear', 'Rear chamber share', '×', { step: 0.05 }) : ''}
@@ -285,22 +363,26 @@
       <div class="mini">${S.type === 'ported' ? act('autofb', 'Auto Fb (flat)') + act('autofb3', 'Auto Fb (extended)') : ''}${act('sizeport', 'Size port for airspeed')}${E.isBP(S.type) ? act('tunebp-wide', 'Auto-tune: wide') + act('tunebp-spl', 'Auto-tune: high output') : ''}</div>
       <h3 style="margin-top:8px">${S.type === 'bandpass6' ? 'Front-chamber port' : 'Port shape'}</h3>
       ${portFields('port')}
-      ${S.type === 'ported' ? seg('port.pos', [['front', 'Front'], ['rear', 'Rear'], ['left', 'Left side'], ['right', 'Right side']]) : ''}
+      ${S.type === 'ported' ? `<h3 style="margin-top:8px">Port opens through</h3>${seg('port.pos', PANEL_OPTS)}` : ''}
       ${chk('port.flare', 'Flared port ends')}
       ${S.type === 'bandpass6' ? `<h3 style="margin-top:12px">Rear-chamber port (on back panel)</h3>${num('fb2', 'Tuning Fb (rear)', 'Hz', { step: 0.5 })}${portFields('port2')}${chk('port2.flare', 'Flared port ends')}` : ''}</div>`;
-      const onFront = E.isBP(S.type) || S.port.pos === 'front';
-      const pl = S.port.place;
+      const pp = E.portPanel(S), dp = E.drvPanel(S), withDrivers = E.isBP(S.type) ? pp === 'front' : pp === dp;
+      const pl = S.port.place, slot = S.port.kind === 'slot';
       h += `<div class="card"><h3>Port &amp; driver placement</h3>
-      <p class="note" style="margin-top:0">${onFront ? 'Choose which side of the drivers the port sits on, or place it yourself.' : 'The port is on the ' + (S.port.pos === 'rear' ? 'back' : S.port.pos) + ' panel. Driver layout below still applies to the front.'}</p>
-      ${onFront ? sel('port.place', 'Port position', [['auto', 'Automatic (best fit)'], ['right', 'Right of drivers'], ['left', 'Left of drivers'], ['below', 'Below drivers'], ['above', 'Above drivers'], ['custom', 'Custom – I choose']], true) : sel('port.place', 'Port position', [['auto', 'Centred on the panel'], ['custom', 'Custom – I choose']], true)}
-      ${pl === 'custom' ? num('layout.px', 'Port centre from left edge', '', { len: 1, ph: 'centre' }) + num('layout.py', 'Port centre from bottom edge', '', { len: 1, ph: 'centre' }) : ''}
+      <p class="note" style="margin-top:0">${slot ? 'The slot sits where its walls are (see "Slot walls" above).' + (withDrivers || E.isBP(S.type) ? ' The drivers use the space that is left.' : '') : withDrivers ? 'Choose which side of the drivers the port sits on, or place it yourself.' : 'The port is on the ' + V.PNAME[pp] + ' panel' + (dp ? ', the drivers on the ' + V.PNAME[dp] + ' panel.' : '.')}</p>
+      ${slot ? '' : withDrivers ? sel('port.place', 'Port position', [['auto', 'Automatic (best fit)'], ['right', 'Right of drivers'], ['left', 'Left of drivers'], ['below', 'Below drivers'], ['above', 'Above drivers'], ['custom', 'Custom – I choose']], true) : sel('port.place', 'Port position', [['auto', 'Centred on the panel'], ['custom', 'Custom – I choose']], true)}
+      ${!slot && pl === 'custom' ? num('layout.px', 'Port centre from left edge', '', { len: 1, ph: 'centre' }) + num('layout.py', 'Port centre from bottom edge', '', { len: 1, ph: 'centre' }) : ''}
       <div id="place-note" class="note"></div></div>`;
     }
+    const bpType = E.isBP(S.type), dpan = E.drvPanel(S), grid = S.n > 1 && S.layout.dir === 'grid';
     h += `<div class="card"><h3>Driver layout</h3>
+      ${bpType ? '<p class="note" style="margin-top:0">In a band-pass box the drivers sit on the internal divider.</p>' : `<h3 style="margin-top:0">Drivers mounted on</h3>${seg('layout.panel', PANEL_OPTS)}`}
+      ${S.n > 1 ? sel('layout.dir', 'Arrangement', [['auto', 'Automatic'], ['row', 'Side by side'], ['col', 'Stacked'], ['grid', 'Rows (e.g. 2 on 2, 3 on 3)']], true) : ''}
+      ${grid ? num('layout.cols', 'Drivers per row', '×', { step: 1 }) + `<p class="note" style="margin:2px 0 6px">${S.n} drivers: ${gridText(S.n, S.layout.cols)}.</p>` : ''}
       ${num('layout.gap', 'Gap between drivers', '', { len: 1 })}
       <label class="fld"><span>Position in free area</span><div class="inp"><input type="range" data-k="layout.align" min="0" max="100" step="1" value="${S.layout.align}" style="margin:6px 0"><em id="align-v">${S.layout.align}%</em></div></label>
       <div class="rng-l"><span>towards left</span><span>centre</span><span>towards right</span></div>
-      ${S.n > 1 ? sel('layout.dir', 'Arrangement', [['auto', 'Automatic'], ['row', 'Side by side'], ['col', 'Stacked']]) : ''}
+      ${bpType ? '' : `<h3 style="margin-top:8px">Exact position (optional)</h3>${num('layout.dx', 'Group centre from left edge', '', { len: 1, ph: 'auto' })}${num('layout.dy', 'Group centre from bottom edge', '', { len: 1, ph: 'auto' })}<p class="note" style="margin:2px 0 6px">Measured on the ${V.PNAME[dpan]} panel seen from outside${dpan === 'top' ? ' (front edge at the bottom)' : dpan === 'bottom' ? ' (back edge at the bottom)' : ''}. Leave empty to place the group automatically.</p>`}
       <p class="note">Edge-to-edge distance between cut-outs (minimum 10 mm so the baffle keeps its strength). The position slider moves the driver group within the space left beside the port, e.g. to the left when the port is on the right.</p></div>`;
     h += `<div class="card"><h3>Use &amp; environment</h3>
       ${num('power', 'Amplifier power (RMS)', 'W', { step: 10 })}
@@ -333,12 +415,19 @@
     const el = e.target, k = el.dataset.k; if (!k || el.type === 'checkbox' || el.tagName === 'SELECT') return;
     if (el.type === 'text') set(S, k, el.value);
     else {
-      if (el.value === '') { if (k === 'braces' || k === 'layout.px' || k === 'layout.py' || k === 'driver.mms' || k === 'driver.cms' || k === 'driver.zn' || k === 'driver.qms') { set(S, k, null); schedule(); } return; }
+      if (el.value === '') {
+        if (k === 'braces' || k === 'layout.px' || k === 'layout.py' || k === 'layout.dx' || k === 'layout.dy' || k === 'driver.mms' || k === 'driver.cms' || k === 'driver.zn' || k === 'driver.qms' || /\.walls\.\d+\.pos$|^xwalls\.\d+\.o[12]$/.test(k)) { set(S, k, null); schedule(); }
+        else if (/\.walls\.\d+\.span$|^xwalls\.\d+\.(s[12]|pos)$/.test(k)) { set(S, k, 0); schedule(); }
+        return;
+      }
       let v = parseFloat(el.value); if (isNaN(v)) return;
       if (el.dataset.len) v *= LEN[S.unit];
-      if (k === 'n' || k === 'port.n' || k === 'port2.n') v = Math.max(1, Math.round(v));
+      if (k === 'n' || k === 'port.n' || k === 'port2.n' || k === 'layout.cols') v = Math.max(1, Math.round(v));
       if (k === 'layout.align') { const a = $('#align-v'); if (a) a.textContent = Math.round(v) + '%'; }
+      // a wall that stops being full width gets a position field (and the reverse), so the panel is redrawn on that change
+      const flip = /\.walls\.\d+\.span$/.test(k) && (get(S, k) > 0) !== (v > 0);
       set(S, k, v);
+      if (flip) renderSide();
     }
     schedule();
   });
@@ -354,6 +443,7 @@
   });
   $('#side').addEventListener('click', (e) => {
     const nu = e.target.closest('[data-nudge]'); if (nu) { nudgeBrace(nu.dataset.nudge); return; }
+    const wn = e.target.closest('[data-wnudge]'); if (wn) { nudgeWall(wn.dataset.wnudge); return; }
     const sg = e.target.closest('[data-seg]'); if (sg) { const v = sg.dataset.v; if (sg.dataset.seg === 'brace.mode' && v === 'custom' && S.brace.mode !== 'custom') seedBraces(); set(S, sg.dataset.seg, v); if (sg.dataset.seg === 'type') { if (v === 'bandpass' && S.port.kind === 'slot') { /* ok */ } } renderSide(); schedule(); return; }
     const a = e.target.closest('[data-act]'); if (a && a.tagName === 'BUTTON') action(a.dataset.act);
   });
@@ -382,11 +472,33 @@
     schedule();
   }
 
+  /* ---------------- slot wall helpers ---------------- */
+  // centre of slot i as the user measures it: from the panel's left edge (walls along top/bottom) or bottom edge (along left/right)
+  function slotCentre(pk, i) {
+    const g = last && last.geo, pt = g && (pk === 'port' ? g.port : g.port2), s = pt && pt.slots && pt.slots[i]; if (!s) return null;
+    const fr = E.panelFrame(S, g, portPanelOf(pk));
+    return s.vert ? fr.b0 + fr.PH / 2 + (s.y0 + s.y1) / 2 : fr.a0 + fr.PW / 2 + (s.x0 + s.x1) / 2;
+  }
+  function nudgeWall(spec) {
+    const [path, d] = spec.split(','), m = path.match(/^(?:(port2?)\.walls|xwalls)\.(\d+)\.(gap|pos)$/); if (!m) return;
+    const w = m[1] ? S[m[1]].walls[+m[2]] : S.xwalls[+m[2]]; if (!w) return;
+    if (m[1] && m[3] === 'pos' && w.pos == null) w.pos = slotCentre(m[1], +m[2]) || 0;
+    w[m[3]] = Math.max(m[3] === 'gap' ? 5 : 0, Math.round(w[m[3]] + +d));
+    const inp = $(`#side input[data-k="${path}"]`);
+    if (inp) inp.value = S.unit === 'in' ? Math.round(w[m[3]] / 25.4 * 1000) / 1000 : S.unit === 'cm' ? w[m[3]] / 10 : w[m[3]];
+    schedule();
+  }
+  // a new extra wall starts across the middle of the box, standing parallel to the front
+  function addXwall() {
+    const g = last && last.geo; if (S.xwalls.length >= MAX_XWALLS) return;
+    S.xwalls.push({ dir: 'across', pos: g ? Math.round(g.Di / 2) : 100, s1: 0, s2: 0, o1: null, o2: null });
+  }
   function sizePortsNow(target) {
     const D = E.makeDriver(S.driver), geo = E.geometry(S), m = E.modelFromState(S, geo), sim = E.simulate(D, m, E.grid(10, 200, 120), simOpts(S));
     const size = (P, port, vmax) => {
       const need = port.SpTot * vmax / (target || 15);
       if (P.kind === 'pipe') P.dia = Math.min(400, Math.max(10, Math.round(Math.sqrt(4 * need / P.n / Math.PI) * 1000)));
+      else if (port.slots) { const k = need / port.SpTot; P.walls.forEach((w, i) => { const s = port.slots[i]; if (s) w.gap = Math.max(5, Math.round(s.gap * k)); }); }
       else { const shortSide = Math.max(5, Math.round(need * 1e6 / port.wSlot)); if (port.vertical) { P.slotW = shortSide; P.slotH = 0; } else { P.slotH = shortSide; P.slotW = 0; } }
     };
     size(S.port, geo.port, Math.max(...sim.vp));
@@ -477,6 +589,8 @@
     if (a === 'derivesd') { if (deriveSd()) { renderSide(); schedule(); toast('Sd = ' + S.driver.sd + ' cm² (from Vas and ' + (S.driver.cms > 0 ? 'Cms' : 'Mms and Fs') + ')'); } return; }
     if (a === 'addbrace') { if (S.brace.items.length < 12) { S.brace.items.push({ axis: 'vertical', a: 0, b: 0 }); centerBrace(S.brace.items.length - 1); } renderSide(); schedule(); return; }
     if (a.indexOf('delbrace:') === 0) { S.brace.items.splice(+a.split(':')[1], 1); renderSide(); schedule(); return; }
+    if (a === 'addxwall') { addXwall(); renderSide(); schedule(); return; }
+    if (a.indexOf('delxwall:') === 0) { S.xwalls.splice(+a.split(':')[1], 1); renderSide(); schedule(); return; }
     const D = E.makeDriver(S.driver), ok = E.validDriver(S.driver);
     if (a === 'savedrv') { const l = userDrivers().filter((p) => p.name !== S.driver.name); l.push(clone(S.driver)); localStorage.setItem('sf_drivers', JSON.stringify(l)); renderSide(); toast('Driver saved in this browser'); return; }
     if (a === 'deldrv') { localStorage.setItem('sf_drivers', JSON.stringify(userDrivers().filter((p) => p.name !== S.driver.name))); renderSide(); return; }
@@ -555,6 +669,7 @@
       else if (R.vpk > 17) add('warn', `Peak port air speed ${f1(R.vpk)} m/s (${f1(R.vpk / 343 * 100)} % Mach) at ${s.power} W. Fine for music; port noise may appear on loud bass notes (limit ≈17 m/s).`);
       else add('ok', `Port air speed stays below ${f1(R.vpk)} m/s at ${s.power} W – no chuffing expected.`);
       geo.portList.forEach(({ label, port: p }) => {
+        if (p.clash) add('bad', `${label}: the slot walls ${p.folded ? 'or their folded segments ' : ''}overlap or cross each other. Move a wall, make a slot narrower, ${p.folded ? 'turn off folding, ' : ''}or remove a wall.`);
         if (p.tooShort && s.type !== 'ported') add('bad', `${label}: cannot be shorter than 10 mm, so its real tuning is ${f1(p.fbAct)} Hz. Use a smaller port area or more chamber volume.`);
         if (p.folded && p.foldFits) add('ok', `${label} (${Math.round(p.L)} mm in total) is folded into ${p.nSeg} straight segments of ${Math.round(p.segLen)} mm and needs ${Math.round(p.stack)} mm across the box. Check clearance around the driver magnet.`);
         else if (p.folded) add('bad', `${label} needs ${p.nSeg} folded segments (${Math.round(p.stack)} mm across) but only ${Math.round(p.stackAvail)} mm is available. Use a smaller port area, a higher tuning, or a bigger box.`);
@@ -581,18 +696,50 @@
     const lay = R.lay;
     if (lay && lay.warn.length) lay.warn.forEach((w) => add('bad', w));
     else add('ok', 'Drivers and ports fit on the baffle with clearance.');
+    if (lay && geo.xwalls) xwallChecks(R, add);
     const span = Math.max(geo.Wi, geo.Hi), unbraced = geo.nb ? geo.Di / (geo.nb + 1) : geo.Di;
     if ((span > 400 && geo.nb === 0) || span / s.t > 28 + geo.nb * 6) add('warn', `Large flat panels (${Math.round(span)} mm across, ${s.t} mm thick) may flex at high SPL. Add brace bars or thicker material; ${geo.autoB} brace${geo.autoB === 1 ? '' : 's'} recommended.`);
     else add('ok', 'Panel stiffness looks adequate for the size.');
     if (geo.Vnet > 3 * D.vasL && s.type === 'sealed') add('warn', 'Sealed volume is much larger than Vas – little effect from the box; the driver is almost in free air.');
-    if (Math.min(s.dims.w, s.dims.h) < s.driver.cut + 40 && !E.isBP(s.type)) add('bad', 'Baffle is too small for the driver cut-out.');
+    const dp = E.drvPanel(s), dfr = dp ? E.panelFrame(s, geo, dp) : null;
+    if (dfr && Math.min(dfr.PW, dfr.PH) < s.driver.cut + 40) add('bad', dp === 'front' ? 'Baffle is too small for the driver cut-out.' : `The ${V.PNAME[dp]} panel is too small for the driver cut-out.`);
     if (s.driver.depth > 0 && s.type !== 'sealed' || s.driver.depth > 0) {
-      const avail = E.isBP(s.type) ? geo.Dr : geo.Di, need = s.driver.depth;
-      if (avail < need + 5) add('bad', `The driver is ${need} mm deep but only ${Math.round(avail)} mm is available behind ${E.isBP(s.type) ? 'the divider' : 'the baffle'}. Make the box deeper.`);
+      const avail = E.isBP(s.type) ? geo.Dr : dfr.depth, need = s.driver.depth;
+      const fix = dp === 'left' || dp === 'right' ? 'Make the box wider.' : dp === 'top' || dp === 'bottom' ? 'Make the box taller.' : 'Make the box deeper.';
+      if (avail < need + 5) add('bad', `The driver is ${need} mm deep but only ${Math.round(avail)} mm is available behind ${E.isBP(s.type) ? 'the divider' : dp === 'front' ? 'the baffle' : 'the ' + V.PNAME[dp] + ' panel'}. ${fix}`);
       else if (avail < need + 35) add('warn', `Only ${Math.round(avail - need)} mm clearance behind the driver (mounting depth ${need} mm). Allow room for the magnet and wiring.`);
       else add('ok', `The driver (${need} mm deep) fits with ${Math.round(avail - need)} mm to spare.`);
     }
     return out;
+  }
+
+  /* extra walls against the port channel, the space just past the port's inner end, the drivers and the band-pass divider.
+     Everything is compared as boxes in inside coordinates. The volume they take is in the tuning; blocking a port is not, so it is flagged. */
+  function xwallChecks(R, add) {
+    const s = R.s, geo = R.geo, lay = R.lay, bp = E.isBP(s.type);
+    const rectOf = (q) => (q.foot ? q.foot : [q.x - (q.outD || q.d) / 2, q.x + (q.outD || q.d) / 2, q.y - (q.outD || q.d) / 2, q.y + (q.outD || q.d) / 2]);
+    const ports = [];
+    geo.portList.forEach(({ label, port }) => {
+      const pid = port === geo.port2 ? 'rear' : bp ? 'front' : E.portPanel(s), fr = E.panelFrame(s, geo, pid);
+      const depth = bp ? (pid === 'rear' ? geo.Dr : geo.Df) : fr.depth;
+      lay.panels[pid].ports.forEach((q) => {
+        const r = rectOf(q), folded = q.fold ? q.fold.nSeg > 1 : port.nSeg > 1, len = folded ? Math.max(depth - 30, 10) : Math.min(port.L, depth - 10);
+        const clear = port.kind === 'slot' ? q.gap || port.hSlot : port.dia;
+        ports.push({ label, box: E.panelBox(s, geo, pid, r[0], r[1], r[2], r[3], fr.th, fr.th + len), end: folded || port.L >= depth - 10 ? null : E.panelBox(s, geo, pid, r[0], r[1], r[2], r[3], fr.th + len, fr.th + len + clear), clear });
+      });
+    });
+    const dp = E.drvPanel(s), drivers = [];
+    if (dp) { const fr = E.panelFrame(s, geo, dp), dep = s.driver.depth > 0 ? s.driver.depth : 100; lay.panels[dp].drivers.forEach((q, i) => drivers.push({ i, box: E.panelBox(s, geo, dp, q.x - q.d / 2, q.x + q.d / 2, q.y - q.d / 2, q.y + q.d / 2, fr.th, fr.th + dep) })); }
+    geo.xwalls.forEach((w) => {
+      const n = 'Extra wall ' + (w.i + 1);
+      ports.forEach((p) => {
+        if (E.boxHit(w, p.box)) add('bad', `${n} cuts through the ${p.label.toLowerCase()}. Move or shrink it so the port channel stays open.`);
+        else if (p.end && E.boxHit(w, p.end)) add('warn', `${n} is less than ${Math.round(p.clear)} mm from the inner end of the ${p.label.toLowerCase()}. Air cannot leave the port freely, which lowers the tuning in a way this model does not include; leave at least the port width clear.`);
+      });
+      drivers.forEach((d) => { if (E.boxHit(w, d.box)) add('bad', `${n} is in the way of driver ${d.i + 1} (its cut-out and mounting depth).`); });
+      if (bp && w.z0 < geo.Df + s.t && w.z1 > geo.Df) add('warn', `${n} crosses the chamber divider; only the parts inside each chamber are counted.`);
+    });
+    add('ok', `Extra walls take up ${f2(geo.Vxw)} L. The net volume and the port tuning include it.`);
   }
 
   /* ---------------- rendering ---------------- */
@@ -601,12 +748,13 @@
     if (!R.ok) { $('#cards').innerHTML = stat('Driver', 'Invalid', '', 'Check T/S values', 'bad'); return; }
     const { s, geo, D } = R, c = [];
     c.push(stat('Net volume', f1(geo.Vnet), 'L', `${f2(geo.Vnet * L2FT3)} ft³ · gross ${f1(geo.Vint)} L`));
-    c.push(stat('External size', `${fmtLenBare(s.dims.w)} × ${fmtLenBare(s.dims.h)} × ${fmtLenBare(s.dims.d)}`, S.unit, `${f1(geo.Vext)} L outside`));
+    const ob = geo.outer || s.dims;
+    c.push(stat('External size', `${fmtLenBare(ob.w)} × ${fmtLenBare(ob.h)} × ${fmtLenBare(ob.d)}`, S.unit, `${f1(geo.Vext)} L outside${geo.outer ? ' · incl. outer layers' : ''}`));
     if (s.type === 'sealed') { c.push(stat('Fc', f1(R.fc), 'Hz')); c.push(stat('Qtc', f2(R.qtc), '', R.qtc > 1.1 ? 'boomy' : R.qtc < 0.5 ? 'thin' : 'balanced', R.qtc > 1.1 || R.qtc < 0.5 ? 'warn' : '')); }
     else { c.push(stat('Tuning Fb', f1(R.m.fb), 'Hz', geo.port.tooShort ? 'port too short!' : geo.port.custom ? 'set by custom port length' : `target ${f1(s.fb)} Hz`, geo.port.tooShort ? 'bad' : '')); if (s.type === 'ported') c.push(stat('Ripple', f1(R.rip), 'dB', 'above F3', R.rip > 2 ? 'warn' : '')); }
     if (E.isBP(s.type)) c.push(stat('Passband −3 dB', `${f1(R.f3)}–${f1(R.fu)}`, 'Hz'));
     else { c.push(stat('F3', f1(R.f3), 'Hz', 'low −3 dB point')); c.push(stat('F10', f1(R.f10), 'Hz', 'usable extension')); }
-    if (s.type !== 'sealed') { geo.portList.forEach(({ label, port: p }) => c.push(stat(label === 'Port' ? 'Port length' : label + ' length', Math.round(p.L), 'mm', `${p.n}× ${p.kind === 'pipe' ? 'Ø' + p.dia + ' mm' : fmtLen(p.wOpen) + ' × ' + fmtLen(p.hOpen)} · ${f1(p.SpTot * 1e4)} cm² · Fb ${f1(label === 'Rear-chamber port' ? R.m.fb2 : R.m.fb)} Hz${p.folded ? ' · folded ×' + p.nSeg : ''}`, (p.L > p.avail && !p.folded) || !p.foldFits ? 'warn' : ''))); c.push(stat('Port air speed', f1(R.vpk), 'm/s', `${f1(R.vpk / 3.432)} % Mach at ${s.power} W`, R.vpk > 34 ? 'bad' : R.vpk > 17 ? 'warn' : '')); }
+    if (s.type !== 'sealed') { geo.portList.forEach(({ label, port: p }) => c.push(stat(label === 'Port' ? 'Port length' : label + ' length', Math.round(p.L), 'mm', `${p.slots && p.n > 1 ? p.n + ' slots' : p.n + '× ' + (p.kind === 'pipe' ? 'Ø' + p.dia + ' mm' : fmtLen(p.wOpen) + ' × ' + fmtLen(p.hOpen))} · ${f1(p.SpTot * 1e4)} cm² · Fb ${f1(label === 'Rear-chamber port' ? R.m.fb2 : R.m.fb)} Hz${p.folded ? ' · folded ×' + p.nSeg : ''}`, (p.L > p.avail && !p.folded) || !p.foldFits ? 'warn' : ''))); c.push(stat('Port air speed', f1(R.vpk), 'm/s', `${f1(R.vpk / 3.432)} % Mach at ${s.power} W`, R.vpk > 34 ? 'bad' : R.vpk > 17 ? 'warn' : '')); }
     const mx = (f) => at(R.sim.splMax, FR, f);
     c.push(stat('Max SPL @ 40 Hz', f1(mx(40)), 'dB', `${f1(mx(30))} dB @ 30 · ${f1(mx(60))} dB @ 60`));
     c.push(stat('Peak excursion', f1(R.xpk), 'mm', `Xmax ${f1(D.xmax)} mm at ${s.power} W`, R.xpk > D.xmax * 1.5 ? 'bad' : R.xpk > D.xmax ? 'warn' : ''));
@@ -711,25 +859,28 @@
 
   function renderBuild(R) {
     const s = R.s, g = R.geo;
-    UI.view.label = `${fmtLen(s.dims.w)} × ${fmtLen(s.dims.h)} × ${fmtLen(s.dims.d)}`;
+    const ob = g.outer || s.dims;
+    UI.view.label = `${fmtLen(ob.w)} × ${fmtLen(ob.h)} × ${fmtLen(ob.d)}`;
     V.draw3d($('#view3d'), s, g, R.lay, UI.view);
     $('#baffle').innerHTML = V.baffleSVG(s, g, R.lay, fmtLenBare);
     $('#view-tools').innerHTML = `<button data-v3="xray" data-tip="See through the panels: bracing, slot walls, ports and drivers at real thickness." class="${UI.view.xray ? 'on' : ''}">X-ray</button><button data-v3="explode" data-tip="Take the box apart to see every panel." class="${UI.view.explode ? 'on' : ''}">Take apart</button><button data-v3="dims" data-tip="Show the outside dimensions on the model." class="${UI.view.dims ? 'on' : ''}">Dimensions</button><button data-v3="finish" data-tip="Change the material look.">Finish: ${UI.view.finish}</button><button data-v3="bg" data-tip="Change the background colour.">Bg: ${UI.view.bg}</button><button data-v3="front">Front</button><button data-v3="reset">Reset</button>`;
-    UI.view.dimText = { w: fmtLen(s.dims.w), h: fmtLen(s.dims.h), d: fmtLen(s.dims.d) };
+    UI.view.dimText = { w: fmtLen(ob.w), h: fmtLen(ob.h), d: fmtLen(ob.d) };
     V.draw3d($('#view3d'), s, g, R.lay, UI.view);
     const plan = $('#plan'); if (plan) plan.innerHTML = V.planSVG(s, g, R.lay, fmtLenBare, ' ' + S.unit);
     const kv = [['Internal size', `${fmtLenBare(g.Wi)} × ${fmtLenBare(g.Hi)} × ${fmtLenBare(g.Di)} ${S.unit}`], ['Gross internal volume', fmtVol(g.Vint)], ['− Driver displacement', fmtVol(g.Vdr)], ['− Bracing & glue blocks', fmtVol(g.Vbr)]];
+    if (g.xwalls) kv.push(['− Extra walls', fmtVol(g.Vxw)]);
     if (g.port) kv.push(['− Port volume', fmtVol(g.Vport)]);
     kv.push(['= Net volume', fmtVol(g.Vnet)]);
     if (E.isBP(s.type)) { kv.push([s.type === 'bandpass6' ? 'Rear chamber (vented)' : 'Rear chamber (sealed)', fmtVol(g.Vr)]); kv.push(['Front chamber (ported)', fmtVol(g.Vf)]); }
     g.portList.forEach(({ label, port: p }) => {
-      kv.push([label, p.kind === 'pipe' ? `${p.n}× Ø${p.dia} mm pipe` : `${p.vertical ? 'vertical' : 'horizontal'} slot ${fmtLen(p.wOpen)} wide × ${fmtLen(p.hOpen)} high`]);
+      if (p.slots) p.slots.forEach((q, i) => kv.push([p.slots.length > 1 ? `${label}, slot ${i + 1}` : label, `${q.vert ? 'vertical' : 'horizontal'} slot ${fmtLen(q.w)} wide × ${fmtLen(q.h)} high, wall ${fmtLen(q.gap)} from the ${V.PNAME[q.along]} panel`]));
+      else kv.push([label, p.kind === 'pipe' ? `${p.n}× Ø${p.dia} mm pipe` : `${p.vertical ? 'vertical' : 'horizontal'} slot ${fmtLen(p.wOpen)} wide × ${fmtLen(p.hOpen)} high`]);
       kv.push(['  length (cut)', `${Math.round(p.L)} mm (${f2(p.L / 25.4)}")`]); kv.push(['  effective length', `${Math.round(p.Leff)} mm`]);
       kv.push(['  area · tuning', `${f1(p.SpTot * 1e4)} cm² · ${f1(label === 'Rear-chamber port' ? R.m.fb2 : R.m.fb)} Hz`]);
       if (p.folded) kv.push(['  folded', `${p.nSeg} segments of ${Math.round(p.segLen)} mm`]);
     });
     const pn = $('#place-note');
-    if (pn) pn.textContent = R.lay.ports.length && (E.isBP(s.type) || s.port.pos === 'front') ? `Port is placed: ${({ right: 'right of the drivers', left: 'left of the drivers', below: 'below the drivers', above: 'above the drivers', custom: 'at your custom position', auto: 'centred' })[R.lay.place] || R.lay.place}.` : '';
+    if (pn) pn.textContent = s.port.kind === 'slot' ? '' : R.lay.panels[E.portPanel(s)].ports.length && (E.isBP(s.type) || E.portPanel(s) === E.drvPanel(s)) ? `Port is placed:${({ right: 'right of the drivers', left: 'left of the drivers', below: 'below the drivers', above: 'above the drivers', custom: 'at your custom position', auto: 'centred' })[R.lay.place] || R.lay.place}.` : '';
     $('#port-info').innerHTML = kv.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   }
 

@@ -190,3 +190,4 @@ html{scroll-behavior:auto}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 :focus-visible{outline:2px solid var(--acc2);outline-offset:2px}
 .inp:focus-within{outline:2px solid var(--acc2);outline-offset:1px}
+.layers{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.layers .fld{grid-template-columns:1fr 84px}

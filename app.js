@@ -326,6 +326,8 @@
     } else h += '<p class="note" style="margin:4px 0 0">Bars alternate between side-to-side and top-to-bottom, spread evenly along the depth.</p>';
     return h + '</div>';
   }
+  // open input groups (by title); the driver group starts open
+  const openCards = new Set((() => { try { const v = JSON.parse(localStorage.getItem('sf_open')); if (Array.isArray(v)) return v.filter((x) => typeof x === 'string'); } catch (e) { /* ignore */ } return ['Driver']; })());
   function renderSide() {
     sanitize(S); // e.g. a slot wall that no longer fits the new port panel is moved before the fields are drawn
     const all = PRESETS.concat(userDrivers());
@@ -365,13 +367,14 @@
       ${portFields('port')}
       ${S.type === 'ported' ? `<h3 style="margin-top:8px">Port opens through</h3>${seg('port.pos', PANEL_OPTS)}` : ''}
       ${chk('port.flare', 'Flared port ends')}
-      ${S.type === 'bandpass6' ? `<h3 style="margin-top:12px">Rear-chamber port (on back panel)</h3>${num('fb2', 'Tuning Fb (rear)', 'Hz', { step: 0.5 })}${portFields('port2')}${chk('port2.flare', 'Flared port ends')}` : ''}</div>`;
+      ${S.type === 'bandpass6' ? `<h3 style="margin-top:12px">Rear-chamber port (on back panel)</h3>${num('fb2', 'Tuning Fb (rear)', 'Hz', { step: 0.5 })}${portFields('port2')}${chk('port2.flare', 'Flared port ends')}` : ''}`;
       const pp = E.portPanel(S), dp = E.drvPanel(S), withDrivers = E.isBP(S.type) ? pp === 'front' : pp === dp;
       const pl = S.port.place, slot = S.port.kind === 'slot';
-      h += `<div class="card"><h3>Port &amp; driver placement</h3>
-      <p class="note" style="margin-top:0">${slot ? 'The slot sits where its walls are (see "Slot walls" above).' + (withDrivers || E.isBP(S.type) ? ' The drivers use the space that is left.' : '') : withDrivers ? 'Choose which side of the drivers the port sits on, or place it yourself.' : 'The port is on the ' + V.PNAME[pp] + ' panel' + (dp ? ', the drivers on the ' + V.PNAME[dp] + ' panel.' : '.')}</p>
+      // placement is part of the port section (one drop-down), under its own sub-heading
+      h += `<h3 style="margin-top:12px">Port placement</h3>
+      <p class="note" style="margin-top:0">${slot ? 'The slot sits where its walls are (see "Slot wall" above).' + (withDrivers || E.isBP(S.type) ? ' The drivers use the space that is left.' : '') : withDrivers ? 'Choose which side of the drivers the port sits on, or place it yourself.' : 'The port is on the ' + V.PNAME[pp] + ' panel' + (dp ? ', the drivers on the ' + V.PNAME[dp] + ' panel.' : '.')}</p>
       ${slot ? '' : withDrivers ? sel('port.place', 'Port position', [['auto', 'Automatic (best fit)'], ['right', 'Right of drivers'], ['left', 'Left of drivers'], ['below', 'Below drivers'], ['above', 'Above drivers'], ['custom', 'Custom – I choose']], true) : sel('port.place', 'Port position', [['auto', 'Centred on the panel'], ['custom', 'Custom – I choose']], true)}
-      ${!slot && pl === 'custom' ? num('layout.px', 'Port centre from left edge', '', { len: 1, ph: 'centre' }) + num('layout.py', 'Port centre from bottom edge', '', { len: 1, ph: 'centre' }) : ''}
+      ${!slot && pl === 'custom' ? num('layout.px', 'Centre from left', '', { len: 1, ph: 'centre' }) + num('layout.py', 'Centre from bottom', '', { len: 1, ph: 'centre' }) : ''}
       <div id="place-note" class="note"></div></div>`;
     }
     const bpType = E.isBP(S.type), dpan = E.drvPanel(S), grid = S.n > 1 && S.layout.dir === 'grid';
@@ -401,7 +404,8 @@
       else if (ae.dataset.seg) sel2 = `[data-seg="${ae.dataset.seg}"][data-v="${ae.dataset.v}"]`;
       else if (ae.dataset.k) sel2 = `[data-k="${ae.dataset.k}"]`;
     }
-    sideEl.innerHTML = h.replace(/<div class="card"><h3>(.*?)<\/h3>/g, (m, x) => '<div class="card"><h2 class="ch">' + x + '</h2>');
+    // every input group is a drop-down: the title is the toggle, and which ones are open survives the redraw
+    sideEl.innerHTML = h.replace(/<div class="card"><h3>(.*?)<\/h3>/g, (m, x) => { const on = openCards.has(x.replace(/&amp;/g, '&')); return `<div class="card${on ? ' open' : ''}" data-card="${x}"><h2 class="ch"><button type="button" class="ch-btn" aria-expanded="${on}">${x}</button></h2>`; });
     sideEl.scrollTop = keep;
     if (sel2) { const n = sideEl.querySelector(sel2); if (n) n.focus({ preventScroll: true }); }
     if (window.scrollY !== winY) window.scrollTo({ top: winY, behavior: 'instant' });
@@ -442,6 +446,14 @@
     set(S, k, v); if (k === 'type' || el.dataset.rebuild) renderSide(); schedule();
   });
   $('#side').addEventListener('click', (e) => {
+    const cb = e.target.closest('.ch-btn');
+    if (cb) {
+      const card = cb.closest('.card'), k = card.dataset.card, on = !card.classList.contains('open');
+      card.classList.toggle('open', on); cb.setAttribute('aria-expanded', on);
+      if (on) openCards.add(k); else openCards.delete(k);
+      try { localStorage.setItem('sf_open', JSON.stringify([...openCards])); } catch (err) { /* only remembered for this visit */ }
+      return;
+    }
     const nu = e.target.closest('[data-nudge]'); if (nu) { nudgeBrace(nu.dataset.nudge); return; }
     const wn = e.target.closest('[data-wnudge]'); if (wn) { nudgeWall(wn.dataset.wnudge); return; }
     const sg = e.target.closest('[data-seg]'); if (sg) { const v = sg.dataset.v; if (sg.dataset.seg === 'brace.mode' && v === 'custom' && S.brace.mode !== 'custom') seedBraces(); set(S, sg.dataset.seg, v); if (sg.dataset.seg === 'type') { if (v === 'bandpass' && S.port.kind === 'slot') { /* ok */ } } renderSide(); schedule(); return; }
@@ -784,7 +796,7 @@
   }
 
   function chartCfg(R) {
-    const s = R.s, col = '#ffb000', mut = getComputedStyle(document.documentElement).getPropertyValue('--mut').trim();
+    const s = R.s, col = '#e8b04a', mut = getComputedStyle(document.documentElement).getPropertyValue('--mut').trim();
     const pinR = UI.pins.filter((p) => p.R && p.R.ok);
     const xmax = UI.xmax, base = { xlog: true, xmin: 10, xmax, xLabel: 'Frequency (Hz)', xfmt: (v) => f1(v) + ' Hz' };
     const vl = [];
@@ -880,7 +892,7 @@
       if (p.folded) kv.push(['  folded', `${p.nSeg} segments of ${Math.round(p.segLen)} mm`]);
     });
     const pn = $('#place-note');
-    if (pn) pn.textContent = s.port.kind === 'slot' ? '' : R.lay.panels[E.portPanel(s)].ports.length && (E.isBP(s.type) || E.portPanel(s) === E.drvPanel(s)) ? `Port is placed:${({ right: 'right of the drivers', left: 'left of the drivers', below: 'below the drivers', above: 'above the drivers', custom: 'at your custom position', auto: 'centred' })[R.lay.place] || R.lay.place}.` : '';
+    if (pn) pn.textContent = s.port.kind === 'slot' ? '' : R.lay.panels[E.portPanel(s)].ports.length && (E.isBP(s.type) || E.portPanel(s) === E.drvPanel(s)) ? `Port is placed: ${({ right: 'right of the drivers', left: 'left of the drivers', below: 'below the drivers', above: 'above the drivers', custom: 'at your custom position', auto: 'centred' })[R.lay.place] || R.lay.place}.` : '';
     $('#port-info').innerHTML = kv.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
   }
 
@@ -1002,7 +1014,7 @@
     e.target.value = '';
   });
   /* ---- print / PDF: draw every simulation graph, in print-safe colours, into #print-charts */
-  const PRINT_COLORS = { '#ffb000': '#b56a00', '#4cc9f0': '#0b7fb0', '#b388ff': '#6b3fd0', '#6ee7a1': '#1a8f57', '#ff7a90': '#c2304f', '#fb7185': '#c2304f', '#fbbf24': '#a16207' };
+  const PRINT_COLORS = { '#ffb000': '#b56a00', '#e8b04a': '#b56a00', '#4cc9f0': '#0b7fb0', '#b388ff': '#6b3fd0', '#6ee7a1': '#1a8f57', '#ff7a90': '#c2304f', '#fb7185': '#c2304f', '#fbbf24': '#a16207' };
   let printBuilt = false, printTimer = null;
   // a synchronous copy of the drawn chart: canvases always print, images loaded from data URLs may not be ready yet
   const snap = (src) => { const c2 = document.createElement('canvas'); c2.width = src.width; c2.height = src.height; c2.getContext('2d').drawImage(src, 0, 0); return c2; };
